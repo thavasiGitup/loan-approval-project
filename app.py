@@ -4,7 +4,6 @@ import pickle
 import numpy as np
 import os
 
-# ---------------- APP SETUP ----------------
 app = FastAPI(title="Loan Approval Prediction API")
 
 # ---------------- MODEL PATH ----------------
@@ -18,13 +17,13 @@ class LoanInput(BaseModel):
     loan_amount: float
     credit_score: int
 
-# ---------------- LOAD MODEL ON STARTUP ----------------
+# ---------------- LOAD MODEL ----------------
 @app.on_event("startup")
 def load_model():
     global model
     try:
         if not os.path.exists(MODEL_PATH):
-            raise FileNotFoundError("loan_model.pkl not found in Azure path")
+            raise FileNotFoundError("loan_model.pkl not found")
 
         with open(MODEL_PATH, "rb") as f:
             model = pickle.load(f)
@@ -32,38 +31,44 @@ def load_model():
         print("✅ Model loaded successfully")
 
     except Exception as e:
-        print("❌ Model loading failed:", str(e))
+        print("❌ Model loading error:", e)
         model = None
 
-# ---------------- HEALTH CHECK ----------------
+# ---------------- HOME ----------------
 @app.get("/")
 def home():
     return {"message": "Loan Approval API running"}
 
-# ---------------- PREDICTION ENDPOINT ----------------
+# ---------------- PREDICTION ----------------
 @app.post("/predict")
 def predict_loan(data: LoanInput):
     try:
         if model is None:
             raise Exception("Model not loaded")
 
-        # Convert input to numpy array (2D)
+        # --------------------------------------------------
+        # IMPORTANT: 9 FEATURES IN THE SAME ORDER AS TRAINING
+        # --------------------------------------------------
+
         features = np.array([[ 
-            float(data.age),
-            float(data.income),
-            float(data.loan_amount),
-            float(data.credit_score)
+            float(data.age),           # 1
+            float(data.income),        # 2
+            float(data.loan_amount),   # 3
+            float(data.credit_score),  # 4
+
+            1,  # 5 gender (default: Male=1)
+            1,  # 6 married (Yes=1)
+            0,  # 7 dependents (0)
+            1,  # 8 education (Graduate=1)
+            0   # 9 self_employed (No=0)
         ]])
 
-        prediction = model.predict(features)
-
-        result = "Approved" if int(prediction[0]) == 1 else "Rejected"
+        prediction = model.predict(features)[0]
 
         return {
-            "prediction": int(prediction[0]),
-            "result": result
+            "prediction": int(prediction),
+            "result": "Approved" if prediction == 1 else "Rejected"
         }
 
     except Exception as e:
-        # IMPORTANT: shows real error in Swagger instead of silent 500
         raise HTTPException(status_code=500, detail=str(e))

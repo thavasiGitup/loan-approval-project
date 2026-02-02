@@ -4,4 +4,4 @@ app = FastAPI()
 
 @app.get("/")
 def home():
-    return {"status": "FastAPI app is running on Azure"}
+    return {"status": "App is running on Azure"}

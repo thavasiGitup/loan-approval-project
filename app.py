@@ -1,43 +1,53 @@
 from fastapi import FastAPI, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 import pickle
 import numpy as np
 import os
 
 app = FastAPI(title="Loan Approval Prediction API")
 
-# ---------------- MODEL PATH ----------------
+# ---------------- PATHS ----------------
 MODEL_PATH = "/home/site/wwwroot/loan_model.pkl"
+SCALER_PATH = "/home/site/wwwroot/scaler.pkl"
+
 model = None
+scaler = None
 
-# ---------------- INPUT SCHEMA (ALL 9 FEATURES) ----------------
+# ---------------- INPUT VALIDATION ----------------
 class LoanInput(BaseModel):
-    age: int
-    income: float
-    loan_amount: float
-    credit_score: int
-    gender: int           # Male=1, Female=0
-    married: int          # Yes=1, No=0
-    dependents: int       # 0,1,2,3
-    education: int        # Graduate=1, Not Graduate=0
-    self_employed: int    # Yes=1, No=0
+    age: int = Field(..., gt=17, lt=100)
+    income: float = Field(..., gt=0)
+    loan_amount: float = Field(..., gt=0)
+    credit_score: int = Field(..., ge=300, le=900)
 
-# ---------------- LOAD MODEL ----------------
+    gender: int = Field(..., ge=0, le=1)
+    married: int = Field(..., ge=0, le=1)
+    dependents: int = Field(..., ge=0, le=3)
+    education: int = Field(..., ge=0, le=1)
+    self_employed: int = Field(..., ge=0, le=1)
+
+# ---------------- LOAD MODEL & SCALER ----------------
 @app.on_event("startup")
-def load_model():
-    global model
+def load_artifacts():
+    global model, scaler
     try:
         if not os.path.exists(MODEL_PATH):
             raise FileNotFoundError("loan_model.pkl not found")
+        if not os.path.exists(SCALER_PATH):
+            raise FileNotFoundError("scaler.pkl not found")
 
         with open(MODEL_PATH, "rb") as f:
             model = pickle.load(f)
 
-        print("✅ Model loaded successfully")
+        with open(SCALER_PATH, "rb") as f:
+            scaler = pickle.load(f)
+
+        print("✅ Model and scaler loaded successfully")
 
     except Exception as e:
-        print("❌ Model loading failed:", e)
+        print("❌ Loading failed:", e)
         model = None
+        scaler = None
 
 # ---------------- HOME ----------------
 @app.get("/")
@@ -48,9 +58,10 @@ def home():
 @app.post("/predict")
 def predict_loan(data: LoanInput):
     try:
-        if model is None:
-            raise Exception("Model not loaded")
+        if model is None or scaler is None:
+            raise Exception("Model or scaler not loaded")
 
+        # Raw features (same order as training)
         features = np.array([[ 
             data.age,
             data.income,
@@ -63,7 +74,10 @@ def predict_loan(data: LoanInput):
             data.self_employed
         ]])
 
-        prediction = model.predict(features)[0]
+        # APPLY SCALING (IMPORTANT)
+        features_scaled = scaler.transform(features)
+
+        prediction = model.predict(features_scaled)[0]
 
         return {
             "prediction": int(prediction),
